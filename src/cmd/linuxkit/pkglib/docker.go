@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -241,6 +243,40 @@ func (dr *dockerRunnerImpl) builder(ctx context.Context, dockerContext, builderI
 	return client, nil
 }
 
+func createBuildkitContainerArgs(name, image, addrEnv string) ([]string, error) {
+	argsBegin := []string{"container", "run", "-d"}
+	argsEnd := []string{"--name", name, "--privileged", image, "--allow-insecure-entitlement", "network.host", "--debug", "--addr"}
+
+	args := argsBegin
+
+	addrArg := addrEnv
+	if addrArg == "" {
+		addrArg = fmt.Sprintf("unix://%s", buildkitSocketPath)
+	}
+
+	addrUrl, err := url.Parse(addrArg)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse buildkit url %s: %s", addrArg, err)
+	}
+
+	// if we use tcp to connect to buildkit, we have to publish the port
+	if addrUrl.Scheme == "tcp" {
+		_, port, err := net.SplitHostPort(addrUrl.Host)
+		if err != nil {
+			return nil, fmt.Errorf("buildkit url host-port (%s) could not be parsed: %s ", addrUrl.Host, err)
+		}
+		if port == "" {
+			return nil, fmt.Errorf("buildkit url (%s) has no port specified", addrArg)
+		}
+		args = append(args, []string{"-p", fmt.Sprintf("%s:%s",port, port)}...)
+	}
+
+	args = append(args, argsEnd...)
+	args = append(args, addrArg)
+
+	return args, nil
+}
+
 // builderEnsureContainer provided a name of a docker context, ensure that the builder container exists and
 // is running the appropriate version of buildkit. If it does not exist, create it; if it is running
 // but has the wrong version of buildkit, or not running buildkit at all, remove it and create an appropriate
@@ -317,8 +353,11 @@ func (dr *dockerRunnerImpl) builderEnsureContainer(ctx context.Context, name, im
 	}
 	if recreate {
 		// create the builder
-		args := []string{"container", "run", "-d", "--name", name, "--privileged", image, "--allow-insecure-entitlement", "network.host", "--addr", fmt.Sprintf("unix://%s", buildkitSocketPath), "--debug"}
-		msg := fmt.Sprintf("creating builder container '%s' in context '%s'", name, dockerContext)
+		args, err := createBuildkitContainerArgs(name, image, os.Getenv("LINUXKIT_BUILDKIT_ADDR"))
+		if err != nil {
+			return nil, err
+		}
+		msg := fmt.Sprintf("creating builder container '%s' in context '%s': cmd: %+v", name, dockerContext, args)
 		fmt.Println(msg)
 		var outputBytes bytes.Buffer
 		if err := dr.command(nil, &outputBytes, &outputBytes, args...); err != nil {
@@ -337,7 +376,7 @@ func (dr *dockerRunnerImpl) builderEnsureContainer(ctx context.Context, name, im
 			return nil, fmt.Errorf("could not communicate with buildkit builder at context/container %s/%s after %d seconds", dockerContext, name, buildkitWaitServer)
 			// Got a tick, we should try again
 		case <-ticker.C:
-			client, err := buildkitClient.New(ctx, fmt.Sprintf("docker-container://%s?context=%s", name, dockerContext))
+			client, err := buildkitClient.New(ctx, "tcp://127.1:1234")
 			if err == nil {
 				_, err = client.Info(ctx)
 				if err == nil {
