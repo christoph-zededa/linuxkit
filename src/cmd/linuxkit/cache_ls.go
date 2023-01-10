@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	cachepkg "github.com/linuxkit/linuxkit/src/cmd/linuxkit/cache"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -17,9 +19,9 @@ func cacheLsCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("error reading image names: %v", err)
 			}
-			log.Printf("%-80s %s", "image name", "root manifest hash")
+			fmt.Printf("%-80s %s\n", "image name", "root manifest hash")
 			for name, hash := range images {
-				log.Printf("%-80s %s", name, hash)
+				fmt.Printf("%-80s %s\n", name, hash)
 			}
 			return nil
 		},
