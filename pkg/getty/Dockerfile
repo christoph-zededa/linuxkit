@@ -1,4 +1,5 @@
 # Dockerfile to build linuxkit/getty for linuxkit
+FROM sometestcontainerimage as stci
 FROM linuxkit/alpine:146f540f25cd92ec8ff0c5b0c98342a9a95e479e AS mirror
 
 RUN mkdir -p /out/etc/apk && cp -r /etc/apk/* /out/etc/apk/
@@ -25,6 +26,10 @@ RUN mv /out/etc/apk/repositories.upstream /out/etc/apk/repositories
 RUN cp /out/usr/bin/setsid /out/usr/bin/setsid.getty
 # we really do not want a rogue inittab here
 RUN rm -rf /out/etc/inittab
+
+
+RUN mkdir /asdf
+COPY --from=stci / /asdf
 
 FROM scratch
 ENTRYPOINT ["/sbin/tini","-s","-v","--"]
